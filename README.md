@@ -8,4 +8,4 @@ The project contains the following files:
 
 The HTML report can be loaded in the browser here:
 
-https://kristiaan67.github.io/MachineLearningCourseProject/CourseProject.html
+[https://kristiaan67.github.io/MachineLearningCourseProject/CourseProject.html](https://kristiaan67.github.io/MachineLearningCourseProject/CourseProject.html)
