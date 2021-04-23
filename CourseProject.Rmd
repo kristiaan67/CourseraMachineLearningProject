@@ -1,0 +1,181 @@
+---
+title: "Practical Machine Learning - Prediction Assignment Writeup"
+author: "Kristiaan De Jongh"
+date: "19.04.2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Synopsis
+
+This document describes a machine learning algorithm to predict "how well" weight 
+lifting exercises are performed. The data is coming from a study in which 6 participants 
+were asked to perform a set of 10 repetitions of the Unilateral Dumbbell Biceps Curl 
+in five different fashions: exactly according to the specification (Class A), 
+throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), 
+lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). 
+
+Class A corresponds to a correct execution of the exercise, the other classes correspond
+to common mistakes. Read more: http://groupware.les.inf.puc-rio.br/har#dataset#ixzz6sa3eaYzf
+
+The data records are measurements from wearable sensors: accelerometer, gyroscope 
+and magnetometer attached to the user's belt, gloves, armband and Dumbbell.
+
+The data set was kindly provided by [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har)
+and is licensed under the Creative Commons license (CC BY-SA).
+
+## Data Preparation and Analysis
+
+The data consists of 2 files: a training and a test set. The training set will be
+used to develop the machine algorithm; the test set will be used for a quiz in which the 
+outcome of 20 test cases is predicted.
+
+```{r init}
+library(dplyr)
+library(caret)
+set.seed(20210419)
+```
+
+```{r download, cache=TRUE}
+if (!file.exists("./data/pml-training.csv")) {
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+                  "./data/pml-training.csv", method = "curl");
+}
+if (!file.exists("./data/pml-testing.csv")) {
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+                  "./data/pml-testing.csv", method = "curl");
+}
+
+pmlTraining <- read.csv("./data/pml-training.csv")
+```
+
+The training data consists of **`r nrow(pmlTraining)`** rows with **`r ncol(pmlTraining)`** 
+variables and the first step is to clean the data and to determine the relevant variables.
+
+[In the following paper](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf) 
+a method is described that performs the feature selection based on correlation and uses a  
+"Best First" strategy based on backtracking. The relevant features are calculations on the Euler 
+angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and magnetometer readings.
+
+```{r prepare1, cache=TRUE}
+pmlTraining <- mutate(pmlTraining, classe = as.factor(classe)) %>%
+    select(classe, num_window,
+           contains("roll_belt") | contains("pitch_belt") | contains("picth_belt") | contains("yaw_belt") | 
+               contains("accel_belt") | contains("gyros_belt") | contains("magnet_belt") |
+               contains("roll_arm") | contains("pitch_arm") | contains("picth_arm") | contains("yaw_arm") |
+               contains("accel_arm") | contains("gyros_arm") | contains("magnet_arm") |
+               contains("roll_dumbbell") | contains("pitch_dumbbell") | contains("picth_dumbbell") | contains("yaw_dumbbell") |
+               contains("accel_dumbbell") | contains("gyros_dumbbell") | contains("magnet_dumbbell") |
+               contains("roll_forearm") | contains("pitch_forearm") | contains("picth_forearm") | contains("yaw_forearm") |
+               contains("accel_forearm") | contains("gyros_forearm") | contains("magnet_forearm"))
+```
+
+Second we remove columns that have near zero variance predictors or contain more 
+than 30% NA values.
+
+```{r prepare2, cache=TRUE}
+# remove columns that contain near zero variance predictors
+pmlTraining <- select(pmlTraining, -nearZeroVar(pmlTraining, names = TRUE))
+# remove columns that contain more than 30% NA values
+pmlTraining <- select_if(pmlTraining, colSums(is.na(pmlTraining)) <= nrow(pmlTraining) * .30)
+```
+
+The cleaned data set consists of **`r nrow(pmlTraining)`** rows with **`r ncol(pmlTraining)`** 
+variables and is split into a training (70%) and validation set (30%).
+
+```{r prepare3, cache=TRUE}
+inTrain  <- createDataPartition(pmlTraining$classe, p = 0.7, list = FALSE)
+pmlTraining_train <- pmlTraining[inTrain,]
+pmlTraining_validate  <- pmlTraining[-inTrain,]
+```
+
+## Machine Learning
+
+In order to find the best algorithm, we will try 4 different models and check their
+performance:
+
+- Classification Trees
+- Random Forest
+- Generated Boosted Model
+- Model based Prediction: Linear Discriminant Analysis
+
+For each method we will use a **10-fold cross validation**:
+
+```{r}
+trControl <- trainControl(method = "cv", number = 10)
+```
+
+For each model we call the confusion matrix to view the prediction results and 
+check their accuracy, sensitivity and specificity.
+
+### Classification Trees
+
+The first try:
+
+```{r CT, cache=TRUE}
+fitCT <- train(classe ~ ., method = "rpart", data = pmlTraining_train, 
+               trControl = trControl)
+predCT <- predict(fitCT, newdata = pmlTraining_validate)
+confusionMatrix(predCT, pmlTraining_validate$classe)
+```
+
+The accuracy of the prediction model is with **49.19%** pretty low. The prediction 
+of *Class A* is not that bad but the other classes are not predicted very well.
+
+### Random Forest
+
+The second try:
+
+```{r RF, cache=TRUE}
+fitRF <- train(classe ~ ., method = "rf", data = pmlTraining_train, 
+               trControl = trControl, prox = TRUE)
+predRF <- predict(fitRF, newdata = pmlTraining_validate)
+confusionMatrix(predRF, pmlTraining_validate$classe)
+```
+
+The accuracy of the Random Forest prediction model is almost perfect: **99.75%**.
+
+### Generated Boosted Model
+
+It will be hard to do better than Random Forest but we tried anyway:
+
+```{r GBM, cache=TRUE}
+fitGBM <- train(classe ~ ., method = "gbm", data = pmlTraining_train, 
+                trControl = trControl, verbose = FALSE)
+predGBM <- predict(fitGBM, newdata = pmlTraining_validate)
+confusionMatrix(predGBM, pmlTraining_validate$classe)
+```
+
+The accuracy of the Generated Boosted Model is also very good (**98.54%**) 
+but not as good as the Random Forest model.
+
+### Model based Prediction: Linear Discriminant Analysis
+
+For completeness we try also a model based prediction:
+
+```{r LDA, cache=TRUE}
+fitLDA <- train(classe ~ ., method = "lda", data = pmlTraining_train, 
+                trControl = trControl)
+predLDA <- predict(fitLDA, newdata = pmlTraining_validate)
+confusionMatrix(predLDA, pmlTraining_validate$classe)
+```
+
+The accuracy of **70.6%** is far below the accuracy of the 2 previous models.
+
+## Conclusion
+
+The best model is *Random Forest* closely followed by the *Generated Boosted Model*. 
+Therefore the Random Forest model will be used to predict the outcome of the test cases.
+Note however, that (on my computer) the generation of the Random Forest model took
+a very long time (much much longer that any other model). Given the accuracy is so
+high there is no need to combine multiple models.
+
+```{r prediction, cache=TRUE}
+bestFit <- fitRF
+pmlTesting <- read.csv("./data/pml-testing.csv")
+predTesting <- predict(bestFit, newdata = pmlTesting)
+predTesting
+```
