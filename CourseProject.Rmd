@@ -1,5 +1,5 @@
 ---
-title: "Practical Machine Learning - Prediction Assignment Writeup"
+title: "Practical Machine Learning - Prediction Assignment"
 author: "Kristiaan De Jongh"
 date: "19.04.2021"
 output: html_document
